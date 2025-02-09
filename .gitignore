@@ -1,0 +1,8 @@
+# Temporary images folder
+tmpImages/
+
+# Error logs folder
+errors/
+
+# Python cache files
+__pycache__/
