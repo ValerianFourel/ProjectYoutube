@@ -411,6 +411,69 @@ def rename_mp4_file(subject_download_dir: str, id: str):
     else:
         print(f"File '{original_file}' not found.")
 
+def check_and_update_download_status(driver, video_id, video_title, subject_download_dir):
+    """
+    Check if download link was found and update CSV file with the status.
+
+    Args:
+        driver: Selenium WebDriver instance
+        video_id: ID of the video
+        video_title: Title of the video
+        subject_download_dir: Directory where the CSV should be saved
+    """
+    import pandas as pd
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    import os
+
+    # Ensure the directory exists
+    if not os.path.exists(subject_download_dir):
+        os.makedirs(subject_download_dir)
+
+    # Define CSV path inside subject_download_dir
+    csv_path = os.path.join(subject_download_dir, 'download_status.csv')
+
+    # Check if the error message exists
+    error_message = "The download link not found."
+    try:
+        error_element = driver.find_element(By.XPATH, f"//div[contains(@class, 'result-failure') and contains(text(), '{error_message}')]")
+        is_link_found = False
+    except:
+        is_link_found = True
+
+    # Prepare the new data
+    new_data = {
+        'video_id': [video_id],
+        'video_title': [video_title],
+        'is_link_found': [is_link_found]
+    }
+
+    # Convert to DataFrame
+    new_df = pd.DataFrame(new_data)
+
+    # If file exists, append to it, otherwise create new file
+    if os.path.exists(csv_path):
+        # Read existing CSV
+        df = pd.read_csv(csv_path)
+
+        # Check if this video_id already exists
+        if video_id in df['video_id'].values:
+            # Update existing entry
+            df.loc[df['video_id'] == video_id, 'is_link_found'] = is_link_found
+            df.loc[df['video_id'] == video_id, 'video_title'] = video_title
+        else:
+            # Append new entry
+            df = pd.concat([df, new_df], ignore_index=True)
+    else:
+        df = new_df
+
+    # Save to CSV
+    df.to_csv(csv_path, index=False)
+
+    return is_link_found
+
+
 def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
     # Get the start time of the loop
     start_time = time.time()
@@ -460,20 +523,45 @@ def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
         old_id = 0
         for key, value in filtered_data.items():
             if loop_counter % 8 == 0:
-                # Schließe den vorherigen WebDriver, falls vorhanden
+                # Close previous WebDriver if it exists
                 if driver:
                     driver.quit()
-                
-                # Erstelle einen neuen WebDriver
+
+                # Create new WebDriver
                 subject_download_dir = os.path.join(base_download_dir, subject_name)
                 driver = setup_firefox_webdriver(subject_download_dir)
                 print(f"New driver initialized at iteration {loop_counter}")
-            # Nutze den aktuellen WebDriver für diese Iteration
-            subject_drivers[subject_name] = driver
-            
-            loop_counter += 1  # Erhöhe den Zähler
+
+            # Get values once
+            video_id = value.get('id')
+            video_title = value.get('title')
             subject_name = value.get('subject_name')
-            id = value.get('id')
+            subject_download_dir = os.path.join(base_download_dir, subject_name)
+
+            # Check if video already exists
+            existing_videos = [f for f in os.listdir(subject_download_dir) if f.endswith('.mp4')]
+                    # Check download link status and update CSV in subject_download_dir
+            is_link_found = check_and_update_download_status(driver, video_id, video_title, subject_download_dir)
+
+            if not is_link_found:
+                print(f"Download link not found for video: {video_id or video_title}")
+                continue
+            # Check if video ID or title exists in any of the filenames
+            should_skip = False
+            for video_file in existing_videos:
+                if (video_id and video_id in video_file) or (video_title and video_title in video_file):
+                    should_skip = True
+                    break
+
+            if should_skip:
+                print(f"Skipping existing video: {video_id or video_title}")
+                continue
+
+            # Use current WebDriver for this iteration
+            subject_drivers[subject_name] = driver
+
+            loop_counter += 1  # Increment counter
+
             subject_download_dir = os.path.join(base_download_dir, subject_name)
 
 
@@ -548,6 +636,7 @@ def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
                 PopUpLargeVideos(driver)
             totalDuration += float(value.get('duration'))
             old_id = id
+            check_and_update_download_status(driver, video_id, video_title, subject_download_dir)
                 # Wait for the sf_result div to be present
 
         # Find the download link within sf_result
