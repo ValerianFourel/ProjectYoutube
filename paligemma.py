@@ -61,14 +61,9 @@ def process_captcha(driver, model, text_prompt= text_prompt):
     for index, div in enumerate(child_divs, start=1):
         div_class = div.get_attribute("class")
         div_text = div.text.strip() if div.text else "No text"
-        print(f"\nChild Div {index}:")
-        print(f"  Class: {div_class or 'No class'}")
-        print(f"  Text: {div_text}")
 
     # Get the second child div
     second_child_div = main_div.find_elements(By.XPATH, "./div")[1]
-    print("Second Child Div:")
-    print(f"  Class: {second_child_div.get_attribute('class')}")
 
     # Find the form within the second child div
     form = second_child_div.find_element(By.TAG_NAME, "form")

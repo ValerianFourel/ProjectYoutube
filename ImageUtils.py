@@ -1,5 +1,5 @@
 import os
-import datetime
+from datetime import datetime
 import cv2
 from PIL import Image
 

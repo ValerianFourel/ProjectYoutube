@@ -46,7 +46,7 @@ def download_video_High_quality(url, id, download_dir):
 
     # Set the chunk size to 1MB
     chunk_size = 1024 * 1024
-
+    time.sleep(10)
     # Send a GET request to the URL with streaming enabled
     response = requests.get(url, stream=True)
 
@@ -59,6 +59,7 @@ def download_video_High_quality(url, id, download_dir):
                 # Write the chunk to the file
                 file.write(chunk)
     else:
+        print('response      ',response)
         print(f"Failed to download video. Status code: {response.status_code}")
 
 
@@ -186,9 +187,10 @@ def getDownloadLargeNoSound(driver):
         if len(link_groups) < 2:
             print("Not enough link-groups found")
             return None
-
+        # Store the current tab ID
+        original_window = driver.current_window_handle
         # Get the second link-group
-        second_link_group = link_groups[1]
+        second_link_group = link_groups[0]
 
         # Find the first link in the second link-group
         download_link = second_link_group.find_element(By.TAG_NAME, "a")
@@ -199,7 +201,23 @@ def getDownloadLargeNoSound(driver):
 
         # Click the link
         download_link.click()
+            # Wait briefly to allow the new tab to open (optional)
+        driver.implicitly_wait(3)
 
+        # Switch to the new tab (the one that is not the original tab)
+        for window_handle in driver.window_handles:
+            if window_handle != original_window:
+                driver.switch_to.window(window_handle)
+                break
+
+        # (Optional) Wait for the new page to load or perform actions
+        driver.implicitly_wait(5)
+
+        # Close the new tab
+        driver.close()
+
+        # Switch back to the original tab
+        driver.switch_to.window(original_window)
         return download_url
 
     except TimeoutException:
@@ -212,62 +230,6 @@ def getDownloadLargeNoSound(driver):
     return None
 
 
-def getDownloadLargeNoSound_(driver):
-    """
-    Function to get the first download link for a video without audio from the second link-group.
-
-    Args:
-    driver: Selenium WebDriver instance
-
-    Returns:
-    str: URL of the download link if found, None otherwise
-    """
-    try:
-        # Wait for the drop-down box to be clickable and click it
-        dropdown = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CLASS_NAME, "drop-down-box"))
-        )
-        dropdown.click()
-
-        # Capture screenshot (assuming this function is defined elsewhere)
-        capture_screenshot(driver)
-
-        # Wait for the list to be visible
-        list_div = WebDriverWait(driver, 10).until(
-            EC.visibility_of_element_located((By.CLASS_NAME, "list"))
-        )
-
-        # Find all divs with class "link-group"
-        link_groups = list_div.find_elements(By.CLASS_NAME, "link-group")
-
-        # Check if there are at least two link-groups
-        if len(link_groups) < 2:
-            print("Not enough link-groups found")
-            return None
-
-        # Get the second link-group
-        second_link_group = link_groups[1]
-
-        # Find the first link in the second link-group
-        download_link = second_link_group.find_element(By.TAG_NAME, "a")
-
-        # Get the href attribute before clicking
-        download_url = download_link.get_attribute('href')
-        print('Download URL: ', download_url)
-
-        # Click the link
-        download_link.click()
-
-        return download_url
-
-    except TimeoutException:
-        print("Timed out waiting for element to be present")
-    except NoSuchElementException:
-        print("Could not find the specified element")
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-    return None
 
 def PopUpLargeVideos(driver):
     """
@@ -303,7 +265,7 @@ def PopUpLargeVideos(driver):
         print("Download button clicked successfully!")
 
             # Wait for the close button to be clickable
-        close_button = WebDriverWait(driver, 10).until(
+        close_button = WebDriverWait(driver, 100).until(
                 EC.element_to_be_clickable((By.CLASS_NAME, "c-ui-popup-btn-close"))
             )
 
@@ -508,12 +470,12 @@ def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
                 os.makedirs(high_quality_dir, exist_ok=True)
                 if download_url == None:
                     continue
-
+                capture_screenshot(driver)
                 download_video_High_quality(download_url, id, high_quality_dir)
                             # Construct the full path to the video file
-
+                capture_screenshot(driver)
                 getDownloadSmallVideosWithSound(driver)
-
+                capture_screenshot(driver)
                 print("Download link clicked successfully")
                 print("3. ")
                 if check_value_above_400(driver):
