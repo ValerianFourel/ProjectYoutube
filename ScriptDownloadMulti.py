@@ -27,6 +27,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import requests
 import argparse
+from urllib.parse import urlparse
+
 import json
 import logging
 import torch
@@ -36,13 +38,19 @@ from ImageUtils import process_screenshot , capture_screenshot
 text_prompt = "Give me only the 4 characters"
 
 
-def download_video_High_quality(url, id, download_dir):
+def download_video_High_quality(url, id, high_quality_dir):
+    download_dir = os.path.join(high_quality_dir, 'HighQuality')
+
+    os.makedirs(high_quality_dir, exist_ok=True)
+                
+
+    print('1')
     # Create the download directory if it doesn't exist
     if not os.path.exists(download_dir):
         os.makedirs(download_dir)
 
     # Construct the full path to the video file
-    video_path = os.path.join(download_dir, id + '.mp4')
+    video_path = os.path.join(download_dir, id + '_highQuality_.mp4')
 
     # Set the chunk size to 1MB
     chunk_size = 1024 * 1024
@@ -160,6 +168,7 @@ def getDownloadLargeNoSound(driver):
     str: URL of the download link if found, None otherwise
     """
     try:
+        print("getDownloadLargeNoSound")
         # Wait for the drop-down box to be clickable and click it
         dropdown = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.CLASS_NAME, "drop-down-box"))
@@ -197,7 +206,6 @@ def getDownloadLargeNoSound(driver):
 
         # Get the href attribute before clicking
         download_url = download_link.get_attribute('href')
-        print('Download URL: ', download_url)
 
         # Click the link
         download_link.click()
@@ -244,14 +252,14 @@ def PopUpLargeVideos(driver):
     print("PopUpLargeVideos")
     try:
         # Wait for the popup to be present in the DOM
-        popup = WebDriverWait(driver, 10).until(
+        popup = WebDriverWait(driver, 100).until(
             EC.presence_of_element_located((By.ID, "c-ui-popup"))
         )
         print("Popup found")
         capture_screenshot(driver)
 
                 # Once popup is present, wait for the download button to be present within the popup
-        download_button = WebDriverWait(popup, 30).until(
+        download_button = WebDriverWait(popup, 300).until(
             EC.presence_of_element_located((By.CLASS_NAME, "c-ui-download-button"))
         )
         print("Download button found")
@@ -283,19 +291,8 @@ def PopUpLargeVideos(driver):
         return False
 
 
-def check_and_rename_mp4_files(directory, timestamp,id):
-    for filename in os.listdir(directory):
-        if filename.lower().endswith('.mp4'):
-            file_path = os.path.join(directory, filename)
-            file_creation_time = os.path.getctime(file_path)
-            
-            if file_creation_time > timestamp:
-                # File was created after the specified timestamp
-                new_filename = f"{id}.mp4"
-                new_file_path = os.path.join(directory, new_filename)
-                
-                os.rename(file_path, new_file_path)
-                print(f"Renamed {filename} to {new_filename}")
+import os
+
 
 def setup_firefox_webdriver(download_dir="/home/vfourel/ProjectGym/DownloadedOutputHighQuality_v2", geckodriver_path="/usr/local/bin/geckodriver"):
     # Set up the Firefox profile
@@ -346,6 +343,74 @@ def filter_data(data, existing_files):
     return {k: v for k, v in data.items() if v.get('id') not in existing_files}
 
 
+
+
+def lowQualityDownload(driver, subject_download_dir):
+    """
+    Downloads a video from a low-quality link on the current page.
+    
+    Args:
+        driver (webdriver): Selenium WebDriver instance.
+        subject_download_dir (str): Directory where the video should be saved.
+    """
+    try:
+        print("Trying to locate the low-quality download section...")
+        section = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "landingTz-main-screen-top"))
+        )
+
+        # Find and click the "with low quality" link
+        low_quality_link = section.find_element(By.XPATH, ".//a[@class='landingTz-btn-close' and contains(text(), 'with low quality')]")
+        print("Found the 'with low quality' link. Clicking it now...")
+        low_quality_link.click()
+
+        print("Successfully clicked the 'with low quality' link.")
+
+        # Wait for the download link to be generated
+        time.sleep(10)  # Adjust based on actual site behavior
+
+        # Get the actual video download URL
+        video_url = low_quality_link.get_attribute('href')
+        print("Video URL:", video_url)
+
+        # Extract the original filename from the URL
+        parsed_url = urlparse(video_url)
+        original_filename = os.path.basename(parsed_url.path)
+
+        # Construct the full path to save the video
+        video_path = os.path.join(subject_download_dir, original_filename)
+
+        # Ensure the download directory exists
+        os.makedirs(subject_download_dir, exist_ok=True)
+
+        # Download the video in chunks
+        chunk_size = 1024 * 1024  # 1MB
+        response = requests.get(video_url, stream=True)
+
+        if response.status_code == 200:
+            with open(video_path, 'wb') as file:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    file.write(chunk)
+            print(f"Download complete: {video_path}")
+            return video_path
+        else:
+            print(f"Failed to download video. Status code: {response.status_code}")
+            return None
+
+    except Exception as e:
+        print("Error:", str(e))
+        return None
+
+def rename_mp4_file(subject_download_dir: str, id: str):
+    original_file = os.path.join(subject_download_dir, "videoplayback.mp4")
+    new_file = os.path.join(subject_download_dir, f"{id}.mp4")
+    
+    if os.path.exists(original_file):
+        os.rename(original_file, new_file)
+        print(f"Renamed '{original_file}' to '{new_file}'")
+    else:
+        print(f"File '{original_file}' not found.")
+
 def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
     # Get the start time of the loop
     start_time = time.time()
@@ -386,20 +451,36 @@ def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
             subject_download_dir = os.path.join(base_download_dir, subject_name)
             os.makedirs(subject_download_dir, exist_ok=True)
             
-            # Set up a WebDriver for this unique subject
-            driver = setup_firefox_webdriver(subject_download_dir)
-            print(driver,subject_name)
-            if driver:
-                subject_drivers[subject_name] = driver
-        
+           
                 # Before the main loop, add these lines:
         existing_files = get_existing_files(base_download_dir)
         filtered_data = filter_data(data, existing_files)
-
+        loop_counter = 0  # Zähler für die Iterationen
+        driver = None  # Initialisierung des WebDrivers außerhalb der Schleife
+        old_id = 0
         for key, value in filtered_data.items():
+            if loop_counter % 8 == 0:
+                # Schließe den vorherigen WebDriver, falls vorhanden
+                if driver:
+                    driver.quit()
+                
+                # Erstelle einen neuen WebDriver
+                subject_download_dir = os.path.join(base_download_dir, subject_name)
+                driver = setup_firefox_webdriver(subject_download_dir)
+                print(f"New driver initialized at iteration {loop_counter}")
+            # Nutze den aktuellen WebDriver für diese Iteration
+            subject_drivers[subject_name] = driver
+            
+            loop_counter += 1  # Erhöhe den Zähler
             subject_name = value.get('subject_name')
             id = value.get('id')
             subject_download_dir = os.path.join(base_download_dir, subject_name)
+
+
+            # Create the nested folder if it doesn't exist
+            os.makedirs(subject_download_dir, exist_ok=True)
+
+            print(f"Folder created at: {subject_download_dir}")
             timestamp = time.time()  # Current time
             driver = subject_drivers[subject_name]
             logging.info("Navigating to webpage")
@@ -446,43 +527,27 @@ def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
             time.sleep(3)
             print("2. ")
             capture_screenshot(driver)
-            try:
+            
             # Wait for the section to be present
-                print("try for low quality")
-                section = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.ID, "landingTz-main-screen-top"))
-            )
-
-            # Find the "with low quality" link and click it
-                low_quality_link = section.find_element(By.XPATH, ".//a[@class='landingTz-btn-close' and contains(text(), 'with low quality')]")
-
-                print("Found the 'with low quality' link. Clicking it now...")
-                low_quality_link.click()
-                print("Successfully clicked the 'with low quality' link.")
-            except Exception as e:
-                print("No low quality link found")
+            lowQualityDownload(driver, subject_download_dir)
                     # Wait for the sf_result div to be present
                 # getDownload(driver)
-                download_url = getDownloadLargeNoSound(driver)
-                capture_screenshot(driver)
-                high_quality_dir = os.path.join(subject_download_dir, 'HighQuality')
-
-                os.makedirs(high_quality_dir, exist_ok=True)
-                if download_url == None:
-                    continue
-                capture_screenshot(driver)
-                download_video_High_quality(download_url, id, high_quality_dir)
+            #download_url = getDownloadLargeNoSound(driver)
+            capture_screenshot(driver)
+            
+            # download_video_High_quality(download_url, id, subject_download_dir)
                             # Construct the full path to the video file
-                capture_screenshot(driver)
+            print('2')
+            getDownloadSmallVideosWithSound(driver)
+
+            print("Download link clicked successfully")
+            rename_mp4_file(subject_download_dir, id)
+            print("3. ")
+            if check_value_above_400(driver):
                 getDownloadSmallVideosWithSound(driver)
-                capture_screenshot(driver)
-                print("Download link clicked successfully")
-                print("3. ")
-                if check_value_above_400(driver):
-                    getDownloadSmallVideosWithSound(driver)
-                    PopUpLargeVideos(driver)
-            check_and_rename_mp4_files(subject_download_dir, timestamp,id+"_test_360")
+                PopUpLargeVideos(driver)
             totalDuration += float(value.get('duration'))
+            old_id = id
                 # Wait for the sf_result div to be present
 
         # Find the download link within sf_result
