@@ -8,3 +8,5 @@ errors/
 __pycache__/
 
 postgresqlCodes.txt
+
+geckodriver.log

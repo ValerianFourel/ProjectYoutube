@@ -29,6 +29,8 @@ import requests
 import argparse
 from urllib.parse import urlparse
 
+import os
+from datetime import datetime
 import json
 import logging
 import torch
@@ -143,17 +145,17 @@ def getDownloadSmallVideosWithSound(driver):
         download_link = result_div.find_element(By.CSS_SELECTOR, ".def-btn-box a")
         download_link.click()
 
-        return download_link
+        return True
 
     except TimeoutException:
         print("Timed out waiting for element to be present")
-        return None
+        return False
     except NoSuchElementException:
         print("Could not find the specified element")
-        return None
+        return False
     except Exception as e:
         print(f"An error occurred: {e}")
-        return None
+        return False
 
 
 
@@ -237,6 +239,42 @@ def getDownloadLargeNoSound(driver):
 
     return None
 
+def get_latest_mp4_file(directory, expected_name, id):
+    import os
+    from datetime import datetime
+
+    try:
+        # Use scandir for better performance 【1】【2】
+        files = [f for f in os.scandir(directory) 
+                if f.is_file() and f.name.lower().endswith('.mp4')]
+
+        if not files:
+            return None, None
+
+        # Get latest file based on modification time 【3】
+        latest_file = max(files, key=lambda x: os.path.getmtime(x.path))
+        mod_time = os.path.getmtime(latest_file.path)
+
+        # Get the directory path and filename separately
+        dir_path = os.path.dirname(latest_file.path)
+        filename = os.path.basename(latest_file.path)
+
+        # Check if filename matches expected name
+        if filename != expected_name:
+            # Create new filename with id
+            new_filename = f"{id}.mp4"
+            new_path = os.path.join(dir_path, new_filename)
+
+            # Rename the file
+            os.rename(latest_file.path, new_path)
+            return new_path, datetime.fromtimestamp(mod_time)
+
+        return latest_file.path, datetime.fromtimestamp(mod_time)
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return None, None
+
 
 
 def PopUpLargeVideos(driver):
@@ -258,16 +296,20 @@ def PopUpLargeVideos(driver):
         print("Popup found")
         capture_screenshot(driver)
 
-                # Once popup is present, wait for the download button to be present within the popup
-        download_button = WebDriverWait(popup, 300).until(
-            EC.presence_of_element_located((By.CLASS_NAME, "c-ui-download-button"))
+    # Wait for either the download button or text containing "Unable to download"
+        element = WebDriverWait(popup, 600).until(
+            lambda x: x.find_element(By.CLASS_NAME, "c-ui-download-button") or 
+                    x.find_element(By.XPATH, "//*[contains(text(), 'Unable to download')]")
         )
-        print("Download button found")
-            # Find the download button within the popup
-        # download_button = popup.find_element(By.CLASS_NAME, "c-ui-download-button")
+
+        # Check if the found element contains "Unable to download"
+        if "Unable to download" in element.text:
+            print("Unable to download message found")
+            return False
+            # download_button = popup.find_element(By.CLASS_NAME, "c-ui-download-button")
 
             # Click the download button
-        download_button.click()
+        element.click()
         capture_screenshot(driver)
 
         print("Download button clicked successfully!")
@@ -280,6 +322,7 @@ def PopUpLargeVideos(driver):
             # Click the close button
         close_button.click()
         print("Close button clicked successfully!")
+        return True
 
     except TimeoutException:
         print("Timed out waiting for popup to be present")
@@ -379,29 +422,26 @@ def lowQualityDownload(driver, subject_download_dir):
 
         # Construct the full path to save the video
         video_path = os.path.join(subject_download_dir, original_filename)
-
-        # Ensure the download directory exists
-        os.makedirs(subject_download_dir, exist_ok=True)
-
         # Download the video in chunks
         chunk_size = 1024 * 1024  # 1MB
         response = requests.get(video_url, stream=True)
+        print("RESPONSEEEE")
 
         if response.status_code == 200:
             with open(video_path, 'wb') as file:
                 for chunk in response.iter_content(chunk_size=chunk_size):
                     file.write(chunk)
             print(f"Download complete: {video_path}")
-            return video_path
+            return False
         else:
             print(f"Failed to download video. Status code: {response.status_code}")
-            return None
+            return False
 
     except Exception as e:
         print("Error:", str(e))
-        return None
+        return False
 
-def rename_mp4_file(subject_download_dir: str, id: str):
+def rename_mp4_file(subject_download_dir, id):
     original_file = os.path.join(subject_download_dir, "videoplayback.mp4")
     new_file = os.path.join(subject_download_dir, f"{id}.mp4")
     
@@ -433,6 +473,7 @@ def check_and_update_download_status(driver, video_id, video_title, subject_down
 
     # Define CSV path inside subject_download_dir
     csv_path = os.path.join(subject_download_dir, 'download_status.csv')
+    is_link_found = True
 
     # Check if the error message exists
     error_message = "The download link not found."
@@ -473,6 +514,41 @@ def check_and_update_download_status(driver, video_id, video_title, subject_down
 
     return is_link_found
 
+def get_download_status(subject_download_dir, video_id, video_title):
+    """
+    Get the download status (is_link_found) from CSV file for a specific video.
+
+    Args:
+        subject_download_dir: Directory where the CSV is saved
+        video_id: ID of the video to look up
+        video_title: Title of the video to look up
+
+    Returns:
+        bool or None: True if link was found, False if not found, None if entry doesn't exist
+    """
+    import pandas as pd
+    import os
+
+    csv_path = os.path.join(subject_download_dir, 'download_status.csv')
+
+    # Check if file exists
+    if not os.path.exists(csv_path):
+        return True
+
+    # Read the CSV file
+    df = pd.read_csv(csv_path)
+
+    # Look for matching entry
+    matching_rows = df[
+        (df['video_id'] == video_id) & 
+        (df['video_title'] == video_title)
+    ]
+
+    # If we found a matching entry, return its status
+    if not matching_rows.empty:
+        return bool(matching_rows.iloc[0]['is_link_found'])
+
+    return True
 
 def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
     # Get the start time of the loop
@@ -522,6 +598,9 @@ def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
         driver = None  # Initialisierung des WebDrivers außerhalb der Schleife
         old_id = 0
         for key, value in filtered_data.items():
+            is_downloaded = False
+            is_link_found = True
+
             if loop_counter % 8 == 0:
                 # Close previous WebDriver if it exists
                 if driver:
@@ -541,17 +620,20 @@ def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
             # Check if video already exists
             existing_videos = [f for f in os.listdir(subject_download_dir) if f.endswith('.mp4')]
                     # Check download link status and update CSV in subject_download_dir
-            is_link_found = check_and_update_download_status(driver, video_id, video_title, subject_download_dir)
-
+            is_link_found = get_download_status(subject_download_dir, video_id, video_title)
+            print(is_link_found)
             if not is_link_found:
                 print(f"Download link not found for video: {video_id or video_title}")
                 continue
             # Check if video ID or title exists in any of the filenames
             should_skip = False
+            print(video_title)
+
             for video_file in existing_videos:
-                if (video_id and video_id in video_file) or (video_title and video_title in video_file):
+                if (video_id in video_file) or ( video_title in video_file):
                     should_skip = True
                     break
+            print("should_skip      ",should_skip)
 
             if should_skip:
                 print(f"Skipping existing video: {video_id or video_title}")
@@ -617,7 +699,8 @@ def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
             capture_screenshot(driver)
             
             # Wait for the section to be present
-            lowQualityDownload(driver, subject_download_dir)
+            lowQualityDownloaded = lowQualityDownload(driver, subject_download_dir) 
+            is_downloaded = is_downloaded | lowQualityDownloaded
                     # Wait for the sf_result div to be present
                 # getDownload(driver)
             #download_url = getDownloadLargeNoSound(driver)
@@ -626,16 +709,21 @@ def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
             # download_video_High_quality(download_url, id, subject_download_dir)
                             # Construct the full path to the video file
             print('2')
-            getDownloadSmallVideosWithSound(driver)
+            downloadSmallVideos = getDownloadSmallVideosWithSound(driver)
+            is_downloaded = is_downloaded | downloadSmallVideos
 
             print("Download link clicked successfully")
-            rename_mp4_file(subject_download_dir, id)
+            rename_mp4_file(subject_download_dir, video_id)
             print("3. ")
             if check_value_above_400(driver):
-                getDownloadSmallVideosWithSound(driver)
-                PopUpLargeVideos(driver)
+                downloadSmallVideos = getDownloadSmallVideosWithSound(driver)
+                is_downloaded = is_downloaded | downloadSmallVideos
+                popupLarge = PopUpLargeVideos(driver)
+                is_downloaded = is_downloaded | popupLarge
+            if is_downloaded:
+                get_latest_mp4_file(subject_download_dir, video_title, video_id)
+
             totalDuration += float(value.get('duration'))
-            old_id = id
             check_and_update_download_status(driver, video_id, video_title, subject_download_dir)
                 # Wait for the sf_result div to be present
 
