@@ -1,8 +1,6 @@
 import os
 import time
 import logging
-import datetime
-from PIL import Image
 from selenium import webdriver
 from selenium.webdriver.firefox.service import Service as FirefoxService
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
@@ -12,65 +10,31 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import WebDriverException
 import torch
-from torchvision import models, transforms
-import cv2
-from transformers import AutoTokenizer, AutoModelForCausalLM
 import json
 import time
-from paligemma import PaliGemma , check_and_process_captcha
+from paligemma import PaliGemma 
 from datetime import datetime
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
-import urllib.request
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
-import requests
 import argparse
-from urllib.parse import urlparse
-
+import pandas as pd
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import os
-from datetime import datetime
 import json
 import logging
-import torch
-from ImageUtils import process_screenshot , capture_screenshot
-# This needs to run only once to load the model into memory
+from ImageUtils import capture_screenshot
+from OCRutils import check_and_process_captcha , process_captcha
+from DownloadUtils import getDownloadSmallVideosWithSound , getDownloadLargeNoSound , lowQualityDownload , PopUpLargeVideos
+
+
 
 text_prompt = "Give me only the 4 characters"
 
-
-def download_video_High_quality(url, id, high_quality_dir):
-    download_dir = os.path.join(high_quality_dir, 'HighQuality')
-
-    os.makedirs(high_quality_dir, exist_ok=True)
-                
-
-    print('1')
-    # Create the download directory if it doesn't exist
-    if not os.path.exists(download_dir):
-        os.makedirs(download_dir)
-
-    # Construct the full path to the video file
-    video_path = os.path.join(download_dir, id + '_highQuality_.mp4')
-
-    # Set the chunk size to 1MB
-    chunk_size = 1024 * 1024
-    time.sleep(10)
-    # Send a GET request to the URL with streaming enabled
-    response = requests.get(url, stream=True)
-
-    # Check if the request was successful
-    if response.status_code == 200:
-        # Open the video file in binary write mode
-        with open(video_path, 'wb') as file:
-            # Iterate over the chunks of the response
-            for chunk in response.iter_content(chunk_size=chunk_size):
-                # Write the chunk to the file
-                file.write(chunk)
-    else:
-        print('response      ',response)
-        print(f"Failed to download video. Status code: {response.status_code}")
 
 
 def check_value_above_400(driver):
@@ -121,127 +85,7 @@ def check_value_above_400(driver):
 
 
 
-
-def getDownloadSmallVideosWithSound(driver):
-    """
-    Function to get the first download link within the specified div.
-
-    Args:
-    driver: Selenium WebDriver instance
-    url: URL of the page containing the download link
-
-    Returns:
-    str: URL of the download link if found, None otherwise
-    """
-    try:
-
-        # Wait for the result div to be present in the DOM
-        result_div = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "sf_result"))
-        )
-        capture_screenshot(driver)
-
-        # Find the first 'a' link inside the div with class "def-btn-box"
-        download_link = result_div.find_element(By.CSS_SELECTOR, ".def-btn-box a")
-        download_link.click()
-
-        return True
-
-    except TimeoutException:
-        print("Timed out waiting for element to be present")
-        return False
-    except NoSuchElementException:
-        print("Could not find the specified element")
-        return False
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        return False
-
-
-
-def getDownloadLargeNoSound(driver):
-    """
-    Function to get the first download link for a video without audio from the second link-group.
-
-    Args:
-    driver: Selenium WebDriver instance
-
-    Returns:
-    str: URL of the download link if found, None otherwise
-    """
-    try:
-        print("getDownloadLargeNoSound")
-        # Wait for the drop-down box to be clickable and click it
-        dropdown = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CLASS_NAME, "drop-down-box"))
-        )
-        dropdown.click()
-
-        # Capture screenshot (assuming this function is defined elsewhere)
-        capture_screenshot(driver)
-
-        # Wait for the list div to be visible
-        list_div = WebDriverWait(driver, 10).until(
-            EC.visibility_of_element_located((By.CLASS_NAME, "list"))
-        )
-
-        # Find the links div inside the list div
-        links_div = list_div.find_element(By.CLASS_NAME, "links")
-
-        # Find the main div inside the links div
-        main_div = links_div.find_element(By.CLASS_NAME, "main")
-
-        # Find all link-group divs inside the main div
-        link_groups = main_div.find_elements(By.CLASS_NAME, "link-group")
-
-        # Check if there are at least two link-groups
-        if len(link_groups) < 2:
-            print("Not enough link-groups found")
-            return None
-        # Store the current tab ID
-        original_window = driver.current_window_handle
-        # Get the second link-group
-        second_link_group = link_groups[0]
-
-        # Find the first link in the second link-group
-        download_link = second_link_group.find_element(By.TAG_NAME, "a")
-
-        # Get the href attribute before clicking
-        download_url = download_link.get_attribute('href')
-
-        # Click the link
-        download_link.click()
-            # Wait briefly to allow the new tab to open (optional)
-        driver.implicitly_wait(3)
-
-        # Switch to the new tab (the one that is not the original tab)
-        for window_handle in driver.window_handles:
-            if window_handle != original_window:
-                driver.switch_to.window(window_handle)
-                break
-
-        # (Optional) Wait for the new page to load or perform actions
-        driver.implicitly_wait(5)
-
-        # Close the new tab
-        driver.close()
-
-        # Switch back to the original tab
-        driver.switch_to.window(original_window)
-        return download_url
-
-    except TimeoutException:
-        print("Timed out waiting for element to be present")
-    except NoSuchElementException:
-        print("Could not find the specified element")
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-    return None
-
 def get_latest_mp4_file(directory, expected_name, id):
-    import os
-    from datetime import datetime
 
     try:
         # Use scandir for better performance 【1】【2】
@@ -275,66 +119,6 @@ def get_latest_mp4_file(directory, expected_name, id):
         print(f"Error: {e}")
         return None, None
 
-
-
-def PopUpLargeVideos(driver):
-    """
-    Function to interact with the video download popup.
-
-    Args:
-    driver: Selenium WebDriver instance
-
-    Returns:
-    bool: True if successful, False otherwise
-    """
-    print("PopUpLargeVideos")
-    try:
-        # Wait for the popup to be present in the DOM
-        popup = WebDriverWait(driver, 100).until(
-            EC.presence_of_element_located((By.ID, "c-ui-popup"))
-        )
-        print("Popup found")
-        capture_screenshot(driver)
-
-    # Wait for either the download button or text containing "Unable to download"
-        element = WebDriverWait(popup, 600).until(
-            lambda x: x.find_element(By.CLASS_NAME, "c-ui-download-button") or 
-                    x.find_element(By.XPATH, "//*[contains(text(), 'Unable to download')]")
-        )
-
-        # Check if the found element contains "Unable to download"
-        if "Unable to download" in element.text:
-            print("Unable to download message found")
-            return False
-            # download_button = popup.find_element(By.CLASS_NAME, "c-ui-download-button")
-
-            # Click the download button
-        element.click()
-        capture_screenshot(driver)
-
-        print("Download button clicked successfully!")
-
-            # Wait for the close button to be clickable
-        close_button = WebDriverWait(driver, 100).until(
-                EC.element_to_be_clickable((By.CLASS_NAME, "c-ui-popup-btn-close"))
-            )
-
-            # Click the close button
-        close_button.click()
-        print("Close button clicked successfully!")
-        return True
-
-    except TimeoutException:
-        print("Timed out waiting for popup to be present")
-        capture_screenshot(driver)
-
-        return False
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        return False
-
-
-import os
 
 
 def setup_firefox_webdriver(download_dir="/home/vfourel/ProjectGym/DownloadedOutputHighQuality_v2", geckodriver_path="/usr/local/bin/geckodriver"):
@@ -388,58 +172,6 @@ def filter_data(data, existing_files):
 
 
 
-def lowQualityDownload(driver, subject_download_dir):
-    """
-    Downloads a video from a low-quality link on the current page.
-    
-    Args:
-        driver (webdriver): Selenium WebDriver instance.
-        subject_download_dir (str): Directory where the video should be saved.
-    """
-    try:
-        print("Trying to locate the low-quality download section...")
-        section = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "landingTz-main-screen-top"))
-        )
-
-        # Find and click the "with low quality" link
-        low_quality_link = section.find_element(By.XPATH, ".//a[@class='landingTz-btn-close' and contains(text(), 'with low quality')]")
-        print("Found the 'with low quality' link. Clicking it now...")
-        low_quality_link.click()
-
-        print("Successfully clicked the 'with low quality' link.")
-
-        # Wait for the download link to be generated
-        time.sleep(10)  # Adjust based on actual site behavior
-
-        # Get the actual video download URL
-        video_url = low_quality_link.get_attribute('href')
-        print("Video URL:", video_url)
-
-        # Extract the original filename from the URL
-        parsed_url = urlparse(video_url)
-        original_filename = os.path.basename(parsed_url.path)
-
-        # Construct the full path to save the video
-        video_path = os.path.join(subject_download_dir, original_filename)
-        # Download the video in chunks
-        chunk_size = 1024 * 1024  # 1MB
-        response = requests.get(video_url, stream=True)
-        print("RESPONSEEEE")
-
-        if response.status_code == 200:
-            with open(video_path, 'wb') as file:
-                for chunk in response.iter_content(chunk_size=chunk_size):
-                    file.write(chunk)
-            print(f"Download complete: {video_path}")
-            return False
-        else:
-            print(f"Failed to download video. Status code: {response.status_code}")
-            return False
-
-    except Exception as e:
-        print("Error:", str(e))
-        return False
 
 def rename_mp4_file(subject_download_dir, id):
     original_file = os.path.join(subject_download_dir, "videoplayback.mp4")
@@ -461,11 +193,7 @@ def check_and_update_download_status(driver, video_id, video_title, subject_down
         video_title: Title of the video
         subject_download_dir: Directory where the CSV should be saved
     """
-    import pandas as pd
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    import os
+    
 
     # Ensure the directory exists
     if not os.path.exists(subject_download_dir):
@@ -595,11 +323,12 @@ def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
         existing_files = get_existing_files(base_download_dir)
         filtered_data = filter_data(data, existing_files)
         loop_counter = 0  # Zähler für die Iterationen
-        driver = None  # Initialisierung des WebDrivers außerhalb der Schleife
+        driver = setup_firefox_webdriver(subject_download_dir)  # Initialisierung des WebDrivers außerhalb der Schleife
         old_id = 0
         for key, value in filtered_data.items():
             is_downloaded = False
             is_link_found = True
+            loop_counter += 1  # Increment counter
 
             if loop_counter % 8 == 0:
                 # Close previous WebDriver if it exists
@@ -642,7 +371,7 @@ def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
             # Use current WebDriver for this iteration
             subject_drivers[subject_name] = driver
 
-            loop_counter += 1  # Increment counter
+           
 
             subject_download_dir = os.path.join(base_download_dir, subject_name)
 
@@ -684,7 +413,8 @@ def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
             print("1. ")
             capture_screenshot(driver)
             try:
-                check_and_process_captcha(driver, model)
+                # check_and_process_captcha(driver, model)
+                process_captcha(driver,model,text_prompt)
                 print("Captcha processed")
             except Exception as e:
                 print("No captcha found")
@@ -706,7 +436,6 @@ def main(model, device, file_path, data, dataSearchTerm, base_download_dir):
             #download_url = getDownloadLargeNoSound(driver)
             capture_screenshot(driver)
             
-            # download_video_High_quality(download_url, id, subject_download_dir)
                             # Construct the full path to the video file
             print('2')
             downloadSmallVideos = getDownloadSmallVideosWithSound(driver)

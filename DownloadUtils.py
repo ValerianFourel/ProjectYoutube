@@ -1,8 +1,5 @@
 import os
 import time
-import logging
-import datetime
-from PIL import Image
 from selenium import webdriver
 from selenium.webdriver.firefox.service import Service as FirefoxService
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
@@ -11,44 +8,16 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import WebDriverException
-import torch
-from torchvision import models, transforms
-import cv2
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import json
 import time
-from datetime import datetime
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
-import urllib.request
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import requests
-import argparse
-import json
-import logging
+from urllib.parse import urlparse
 
-def capture_screenshot(driver):
-    # Create timestamp
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-
-    # Define screenshot path
-    screenshot_dir = 'tmpImages'
-    screenshot_filename = f'tmp-{timestamp}.png'
-    screenshot_path = os.path.join(screenshot_dir, screenshot_filename)
-
-    # Ensure the directory exists
-    os.makedirs(screenshot_dir, exist_ok=True)
-
-    # Capture and save the screenshot
-    driver.save_screenshot(screenshot_path)
-
-    print(f"Screenshot saved: {screenshot_path}")
-
-    return screenshot_path
-
-
+from ImageUtils import capture_screenshot
 
 
 def getDownloadSmallVideosWithSound(driver):
@@ -74,17 +43,17 @@ def getDownloadSmallVideosWithSound(driver):
         download_link = result_div.find_element(By.CSS_SELECTOR, ".def-btn-box a")
         download_link.click()
 
-        return download_link
+        return True
 
     except TimeoutException:
         print("Timed out waiting for element to be present")
-        return None
+        return False
     except NoSuchElementException:
         print("Could not find the specified element")
-        return None
+        return False
     except Exception as e:
         print(f"An error occurred: {e}")
-        return None
+        return False
 
 
 
@@ -99,6 +68,7 @@ def getDownloadLargeNoSound(driver):
     str: URL of the download link if found, None otherwise
     """
     try:
+        print("getDownloadLargeNoSound")
         # Wait for the drop-down box to be clickable and click it
         dropdown = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.CLASS_NAME, "drop-down-box"))
@@ -126,20 +96,36 @@ def getDownloadLargeNoSound(driver):
         if len(link_groups) < 2:
             print("Not enough link-groups found")
             return None
-
+        # Store the current tab ID
+        original_window = driver.current_window_handle
         # Get the second link-group
-        second_link_group = link_groups[1]
+        second_link_group = link_groups[0]
 
         # Find the first link in the second link-group
         download_link = second_link_group.find_element(By.TAG_NAME, "a")
 
         # Get the href attribute before clicking
         download_url = download_link.get_attribute('href')
-        print('Download URL: ', download_url)
 
         # Click the link
         download_link.click()
+            # Wait briefly to allow the new tab to open (optional)
+        driver.implicitly_wait(3)
 
+        # Switch to the new tab (the one that is not the original tab)
+        for window_handle in driver.window_handles:
+            if window_handle != original_window:
+                driver.switch_to.window(window_handle)
+                break
+
+        # (Optional) Wait for the new page to load or perform actions
+        driver.implicitly_wait(5)
+
+        # Close the new tab
+        driver.close()
+
+        # Switch back to the original tab
+        driver.switch_to.window(original_window)
         return download_url
 
     except TimeoutException:
@@ -153,62 +139,59 @@ def getDownloadLargeNoSound(driver):
 
 
 
-def getDownloadLargeNoSound_(driver):
+def lowQualityDownload(driver, subject_download_dir):
     """
-    Function to get the first download link for a video without audio from the second link-group.
-
+    Downloads a video from a low-quality link on the current page.
+    
     Args:
-    driver: Selenium WebDriver instance
-
-    Returns:
-    str: URL of the download link if found, None otherwise
+        driver (webdriver): Selenium WebDriver instance.
+        subject_download_dir (str): Directory where the video should be saved.
     """
     try:
-        # Wait for the drop-down box to be clickable and click it
-        dropdown = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CLASS_NAME, "drop-down-box"))
-        )
-        dropdown.click()
-
-        # Capture screenshot (assuming this function is defined elsewhere)
-        capture_screenshot(driver)
-
-        # Wait for the list to be visible
-        list_div = WebDriverWait(driver, 10).until(
-            EC.visibility_of_element_located((By.CLASS_NAME, "list"))
+        print("Trying to locate the low-quality download section...")
+        section = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "landingTz-main-screen-top"))
         )
 
-        # Find all divs with class "link-group"
-        link_groups = list_div.find_elements(By.CLASS_NAME, "link-group")
+        # Find and click the "with low quality" link
+        low_quality_link = section.find_element(By.XPATH, ".//a[@class='landingTz-btn-close' and contains(text(), 'with low quality')]")
+        print("Found the 'with low quality' link. Clicking it now...")
+        low_quality_link.click()
 
-        # Check if there are at least two link-groups
-        if len(link_groups) < 2:
-            print("Not enough link-groups found")
-            return None
+        print("Successfully clicked the 'with low quality' link.")
 
-        # Get the second link-group
-        second_link_group = link_groups[1]
+        # Wait for the download link to be generated
+        time.sleep(10)  # Adjust based on actual site behavior
 
-        # Find the first link in the second link-group
-        download_link = second_link_group.find_element(By.TAG_NAME, "a")
+        # Get the actual video download URL
+        video_url = low_quality_link.get_attribute('href')
+        print("Video URL:", video_url)
 
-        # Get the href attribute before clicking
-        download_url = download_link.get_attribute('href')
-        print('Download URL: ', download_url)
+        # Extract the original filename from the URL
+        parsed_url = urlparse(video_url)
+        original_filename = os.path.basename(parsed_url.path)
 
-        # Click the link
-        download_link.click()
+        # Construct the full path to save the video
+        video_path = os.path.join(subject_download_dir, original_filename)
+        # Download the video in chunks
+        chunk_size = 1024 * 1024  # 1MB
+        response = requests.get(video_url, stream=True)
+        print("RESPONSEEEE")
 
-        return download_url
+        if response.status_code == 200:
+            with open(video_path, 'wb') as file:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    file.write(chunk)
+            print(f"Download complete: {video_path}")
+            return False
+        else:
+            print(f"Failed to download video. Status code: {response.status_code}")
+            return False
 
-    except TimeoutException:
-        print("Timed out waiting for element to be present")
-    except NoSuchElementException:
-        print("Could not find the specified element")
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print("Error:", str(e))
+        return False
 
-    return None
 
 def PopUpLargeVideos(driver):
     """
@@ -223,34 +206,39 @@ def PopUpLargeVideos(driver):
     print("PopUpLargeVideos")
     try:
         # Wait for the popup to be present in the DOM
-        popup = WebDriverWait(driver, 10).until(
+        popup = WebDriverWait(driver, 100).until(
             EC.presence_of_element_located((By.ID, "c-ui-popup"))
         )
         print("Popup found")
         capture_screenshot(driver)
 
-                # Once popup is present, wait for the download button to be present within the popup
-        download_button = WebDriverWait(popup, 30).until(
-            EC.presence_of_element_located((By.CLASS_NAME, "c-ui-download-button"))
+    # Wait for either the download button or text containing "Unable to download"
+        element = WebDriverWait(popup, 600).until(
+            lambda x: x.find_element(By.CLASS_NAME, "c-ui-download-button") or 
+                    x.find_element(By.XPATH, "//*[contains(text(), 'Unable to download')]")
         )
-        print("Download button found")
-            # Find the download button within the popup
-        # download_button = popup.find_element(By.CLASS_NAME, "c-ui-download-button")
+
+        # Check if the found element contains "Unable to download"
+        if "Unable to download" in element.text:
+            print("Unable to download message found")
+            return False
+            # download_button = popup.find_element(By.CLASS_NAME, "c-ui-download-button")
 
             # Click the download button
-        download_button.click()
+        element.click()
         capture_screenshot(driver)
 
         print("Download button clicked successfully!")
 
             # Wait for the close button to be clickable
-        close_button = WebDriverWait(driver, 10).until(
+        close_button = WebDriverWait(driver, 100).until(
                 EC.element_to_be_clickable((By.CLASS_NAME, "c-ui-popup-btn-close"))
             )
 
             # Click the close button
         close_button.click()
         print("Close button clicked successfully!")
+        return True
 
     except TimeoutException:
         print("Timed out waiting for popup to be present")
