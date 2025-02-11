@@ -11,7 +11,7 @@ from paligemma import getThePromptOCR
 def check_and_process_captcha(driver, model):
     try:
         # Wait for up to 10 seconds for the element to be present
-        main_div = WebDriverWait(driver, 100).until(
+        main_div = WebDriverWait(driver, 1000).until(
             EC.presence_of_element_located((By.ID, "output-captcha-dialog"))
         )
 
@@ -36,7 +36,6 @@ def process_captcha(driver, model, text_prompt):
     html_content = element.get_attribute('outerHTML')
 
     # Print the HTML content
-    print(html_content)
 
     # Wait for the main div to be present
     main_div = WebDriverWait(driver, 10).until(
