@@ -213,9 +213,10 @@ def PopUpLargeVideos(driver):
         capture_screenshot(driver)
 
     # Wait for either the download button or text containing "Unable to download"
+                # Wait for either the download button or popup title containing "Unable to download file"
         element = WebDriverWait(popup, 600).until(
             lambda x: x.find_element(By.CLASS_NAME, "c-ui-download-button") or 
-                    x.find_element(By.XPATH, "//*[contains(text(), 'Unable to download')]")
+                    x.find_element(By.CLASS_NAME, "c-ui-popup-title").text == "Unable to download file"
         )
 
         # Check if the found element contains "Unable to download"
