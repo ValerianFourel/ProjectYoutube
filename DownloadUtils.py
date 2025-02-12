@@ -203,6 +203,7 @@ def PopUpLargeVideos(driver):
     Returns:
     bool: True if successful, False otherwise
     """
+    popup = None
     try:
         # Wait for the popup to be present in the DOM
         popup = WebDriverWait(driver, 100).until(
@@ -214,10 +215,13 @@ def PopUpLargeVideos(driver):
                 # Wait for either the download button or popup title containing "Unable to download file"
         element = WebDriverWait(popup, 300).until(
             lambda x: x.find_element(By.CLASS_NAME, "c-ui-download-button") or 
-                    x.find_element(By.CLASS_NAME, "c-ui-popup-title").text == "Unable to download file"
+                     EC.presence_of_element_located((By.ID, "c-ui-popup"))
         )
         capture_screenshot(driver)
 
+        # Wait for the popup to be present in the DOM
+
+        print(element.get_attribute("outerHTML"))
 
         # Check if the found element contains "Unable to download"
         if "Unable to download" in element.text:
@@ -241,8 +245,12 @@ def PopUpLargeVideos(driver):
         return True
 
     except TimeoutException:
+        print(popup.text)
+
         print("Timed out waiting for popup to be present")
         capture_screenshot(driver)
+
+
 
         return False
     except Exception as e:
